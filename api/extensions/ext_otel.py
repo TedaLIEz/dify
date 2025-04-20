@@ -7,6 +7,7 @@ import sys
 from typing import Union
 
 from celery.signals import worker_init  # type: ignore
+from flask import got_request_exception
 from flask_login import user_loaded_from_request, user_logged_in  # type: ignore
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
@@ -28,9 +29,8 @@ from opentelemetry.sdk.trace.export import (
 )
 from opentelemetry.sdk.trace.sampling import ParentBasedTraceIdRatio
 from opentelemetry.semconv.resource import ResourceAttributes
-from opentelemetry.trace import Span, get_current_span, get_tracer_provider, set_tracer_provider
+from opentelemetry.trace import Span, StatusCode, get_current_span, get_tracer_provider, set_tracer_provider
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from opentelemetry.trace.status import StatusCode
 
 from configs import dify_config
 from dify_app import DifyApp
@@ -109,6 +109,14 @@ def init_app(app: DifyApp):
 
 def is_celery_worker():
     return "celery" in sys.argv[0].lower()
+
+
+@got_request_exception.connect
+def on_got_request_exception(sender, exception, **kwargs):
+    span = get_current_span()
+    if span and span.is_recording():
+        span.set_status(StatusCode.ERROR, str(exception))
+        span.record_exception(exception)
 
 
 def init_flask_instrumentor(app: DifyApp):
